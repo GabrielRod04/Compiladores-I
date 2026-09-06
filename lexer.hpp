@@ -10,6 +10,7 @@
 using std::runtime_error;
 using std::string;
 using std::unordered_map;
+using std::vector;
 
 // Categorias de Tokens
 
@@ -108,6 +109,20 @@ class Lexer
 {
 public:
     explicit Lexer(const string &fuente) : src(fuente), pos(0), linea(1), columna(1) {}
+
+    // Recorre todo el codigo fuente y devuelve la lista completa de Tokens
+    vector<Token> tokenizar()
+    {
+        vector<Token> tokens;
+        while (true)
+        {
+            Token t = siguienteToken();
+            tokens.push_back(t);
+            if (t.type == TokenType::END_OF_FILE)
+                break;
+        }
+        return tokens;
+    }
 };
 
 #endif
