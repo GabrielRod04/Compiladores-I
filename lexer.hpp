@@ -46,11 +46,11 @@ enum class TokenType
     OP_PLUS,
     OP_MINUS,
     OP_STAR,
-    OP_SPLASH,
+    OP_SLASH,
     OP_AND,
     OP_OR,
     OP_NOT,
-    OP_LIT,
+    OP_LT,
     OP_GT,
     OP_LE,
     OP_GE,
@@ -122,6 +122,261 @@ public:
                 break;
         }
         return tokens;
+    }
+
+private:
+    const std::string src;
+    size_t pos;
+    int linea, columna;
+
+    // --- utilidades de bajo nivel ---
+
+    char actual() const
+    {
+        return pos < src.size() ? src[pos] : '\0';
+    }
+
+    char siguiente() const
+    {
+        return (pos + 1) < src.size() ? src[pos + 1] : '\0';
+    }
+
+    void avanzar()
+    {
+        if (actual() == '\n')
+        {
+            linea++;
+            columna = 1;
+        }
+        else
+        {
+            columna++;
+        }
+        pos++;
+    }
+
+    void saltarEspaciosYComentarios()
+    {
+        while (true)
+        {
+            char c = actual();
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+            {
+                avanzar();
+            }
+            else if (c == '/' && siguiente() == '/')
+            {
+                // comentario de línea: ignorar hasta '\n' o EOF
+                while (actual() != '\n' && actual() != '\0')
+                    avanzar();
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    // reconocedores por categoría (cada uno = un AFD)
+
+    Token reconocerIdentificadorOReservada(int lin, int col)
+    {
+        std::string lexema;
+        while (std::isalnum((unsigned char)actual()) || actual() == '_')
+        {
+            lexema += actual();
+            avanzar();
+        }
+        auto it = Palabras_Reservadas.find(lexema);
+        TokenType tipo = (it != Palabras_Reservadas.end()) ? it->second : TokenType::ID;
+        return {tipo, lexema, lin, col};
+    }
+
+    Token reconocerNumero(int lin, int col)
+    {
+        std::string lexema;
+        bool esFloat = false;
+
+        while (std::isdigit((unsigned char)actual()))
+        {
+            lexema += actual();
+            avanzar();
+        }
+        // Parte decimal: solo si hay un '.' seguido de un dígito
+        // (evita confundir "10.suma()" con un número mal formado)
+        if (actual() == '.' && std::isdigit((unsigned char)siguiente()))
+        {
+            esFloat = true;
+            lexema += actual();
+            avanzar();
+            while (std::isdigit((unsigned char)actual()))
+            {
+                lexema += actual();
+                avanzar();
+            }
+        }
+        TokenType tipo = esFloat ? TokenType::NUM_FLOAT : TokenType::NUM_INT;
+        return {tipo, lexema, lin, col};
+    }
+
+    Token reconocerCadena(int lin, int col)
+    {
+        std::string lexema;
+        avanzar(); // consume la comilla inicial '"'
+        while (actual() != '"')
+        {
+            if (actual() == '\0' || actual() == '\n')
+            {
+                throw LexerError("Cadena de texto sin cerrar", lin, col);
+            }
+            lexema += actual();
+            avanzar();
+        }
+        avanzar(); // consume la comilla final '"'
+        return {TokenType::STRING_LIT, lexema, lin, col};
+    }
+
+    Token reconocerCaracter(int lin, int col)
+    {
+        avanzar(); // consume la comilla inicial '\''
+        std::string lexema;
+        if (actual() == '\0')
+            throw LexerError("Literal char sin cerrar", lin, col);
+        lexema += actual();
+        avanzar();
+        if (actual() != '\'')
+            throw LexerError("Literal char mal formado", lin, col);
+        avanzar(); // consume la comilla final '\''
+        return {TokenType::CHAR_LIT, lexema, lin, col};
+    }
+
+    // Operadores y delimitadores: se revisan primero los de 2 caracteres
+    Token reconocerSimbolo(int lin, int col)
+    {
+        char c = actual();
+        char c2 = siguiente();
+
+        // --- de dos caracteres ---
+        if (c == '-' && c2 == '>')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_ARROW, "->", lin, col};
+        }
+        if (c == '=' && c2 == '=')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_EQ, "==", lin, col};
+        }
+        if (c == '!' && c2 == '=')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_NEQ, "!=", lin, col};
+        }
+        if (c == '<' && c2 == '=')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_LE, "<=", lin, col};
+        }
+        if (c == '>' && c2 == '=')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_GE, ">=", lin, col};
+        }
+        if (c == '&' && c2 == '&')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_AND, "&&", lin, col};
+        }
+        if (c == '|' && c2 == '|')
+        {
+            avanzar();
+            avanzar();
+            return {TokenType::OP_OR, "||", lin, col};
+        }
+
+        //  de un caracter
+        switch (c)
+        {
+        case '+':
+            avanzar();
+            return {TokenType::OP_PLUS, "+", lin, col};
+        case '-':
+            avanzar();
+            return {TokenType::OP_MINUS, "-", lin, col};
+        case '*':
+            avanzar();
+            return {TokenType::OP_STAR, "*", lin, col};
+        case '/':
+            avanzar();
+            return {TokenType::OP_SLASH, "/", lin, col};
+        case '<':
+            avanzar();
+            return {TokenType::OP_LT, "<", lin, col};
+        case '>':
+            avanzar();
+            return {TokenType::OP_GT, ">", lin, col};
+        case '!':
+            avanzar();
+            return {TokenType::OP_NOT, "!", lin, col};
+        case '=':
+            avanzar();
+            return {TokenType::OP_ASSIGN, "=", lin, col};
+        case '{':
+            avanzar();
+            return {TokenType::LBRACE, "{", lin, col};
+        case '}':
+            avanzar();
+            return {TokenType::RBRACE, "}", lin, col};
+        case '(':
+            avanzar();
+            return {TokenType::LPAREN, "(", lin, col};
+        case ')':
+            avanzar();
+            return {TokenType::RPAREN, ")", lin, col};
+        case ',':
+            avanzar();
+            return {TokenType::COMMA, ",", lin, col};
+        case ':':
+            avanzar();
+            return {TokenType::COLON, ":", lin, col};
+        case ';':
+            avanzar();
+            return {TokenType::SEMI, ";", lin, col};
+        }
+
+        // Ningún AFD lo reconoció -> caracter inválido
+        std::string desconocido(1, c);
+        avanzar();
+        return {TokenType::UNKNOWN, desconocido, lin, col};
+    }
+
+    // función principal: decide qué reconocedor invocar
+    Token siguienteToken()
+    {
+        saltarEspaciosYComentarios();
+
+        int lin = linea, col = columna;
+        char c = actual();
+
+        if (c == '\0')
+            return {TokenType::END_OF_FILE, "", lin, col};
+
+        if (std::isalpha((unsigned char)c) || c == '_')
+            return reconocerIdentificadorOReservada(lin, col);
+        if (std::isdigit((unsigned char)c))
+            return reconocerNumero(lin, col);
+        if (c == '"')
+            return reconocerCadena(lin, col);
+        if (c == '\'')
+            return reconocerCaracter(lin, col);
+
+        return reconocerSimbolo(lin, col);
     }
 };
 
